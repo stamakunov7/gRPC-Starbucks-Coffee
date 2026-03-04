@@ -1,0 +1,49 @@
+syntax = "proto3";
+package coffeeshop;
+
+option go_package = "grpc_starbuckscoffee/proto";
+
+// Service CoffeeShop with the following methods:
+service CoffeeShop {
+    rpc GetMenu(MenuRequest) returns (stream Menu) {}
+    rpc MakeCoffee(CoffeeRequest) returns (Coffee) {}
+    rpc PlaceOrder(Order) returns (Receipt) {}
+    rpc GetOrderStatus(Receipt) returns (OrderStatus) {}
+}
+
+message MenuRequest {}
+
+message Order {
+    repeated Item items = 1;
+}
+
+message Receipt {
+    string id = 1;
+}
+
+message OrderStatus {
+    string order_id = 1;
+    string status = 2;
+}
+
+message Menu {
+    repeated Item items = 1;
+}
+
+message Item {
+    string id = 1;
+    string name = 2;
+    string description = 3;
+    double price = 4;
+}
+
+message CoffeeRequest {
+    string item_name = 1;
+    string size = 2;
+}
+
+message Coffee {
+    string item_name = 1;
+    string size = 2;
+    string status = 3;
+}
