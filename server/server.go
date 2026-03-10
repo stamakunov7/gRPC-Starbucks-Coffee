@@ -17,27 +17,27 @@ type server struct {
 
 func (s *server) GetMenu(menuRequest *pb.MenuRequest, srv pb.CoffeeShop_GetMenuServer) error {
 	items := []*pb.Item{
-		&pb.Item{
+		{
 			Id:          "1",
 			Name:        "Black Coffee",
-			Description: "A cup of black colombian coffee",
+			Description: "Description",
 			Price:       3.00,
 		},
-		&pb.Item{
+		{
 			Id:          "2",
 			Name:        "Vanilla Latte",
-			Description: "A cup of vanilla latte",
+			Description: "Description",
 			Price:       3.25,
 		},
-		&pb.Item{
+		{
 			Id:          "3",
 			Name:        "Matcha Latte",
-			Description: "A cup of matcha latte",
+			Description: "Description",
 			Price:       5.70,
 		},
 	}
 
-	for i, _ := range items {
+	for i := range items {
 		if err := srv.Send(&pb.Menu{
 			Items: items[0 : i+1],
 		}); err != nil {
@@ -47,7 +47,7 @@ func (s *server) GetMenu(menuRequest *pb.MenuRequest, srv pb.CoffeeShop_GetMenuS
 	return nil
 }
 
-func (s *server) MakeCoffee(context context.Context, coffeeRequest *pb.CoffeeRequest) (*pb.Coffee, error) {
+func (s *server) MakeCoffee(ctx context.Context, coffeeRequest *pb.CoffeeRequest) (*pb.Coffee, error) {
 	return &pb.Coffee{
 		ItemName: coffeeRequest.ItemName,
 		Size:     coffeeRequest.Size,
@@ -55,13 +55,13 @@ func (s *server) MakeCoffee(context context.Context, coffeeRequest *pb.CoffeeReq
 	}, nil
 }
 
-func (s *server) PlaceOrder(context context.Context, order *pb.Order) (*pb.Receipt, error) {
+func (s *server) PlaceOrder(ctx context.Context, order *pb.Order) (*pb.Receipt, error) {
 	return &pb.Receipt{
 		Id: "ABC123",
 	}, nil
 }
 
-func (s *server) GetOrderStatus(context context.Context, receipt *pb.Receipt) (*pb.OrderStatus, error) {
+func (s *server) GetOrderStatus(ctx context.Context, receipt *pb.Receipt) (*pb.OrderStatus, error) {
 	return &pb.OrderStatus{
 		OrderId: receipt.Id,
 		Status:  "In Progress",

@@ -4,7 +4,7 @@ package main
 import (
 	"context"
 	"io"
-	"log"
+	"log" // timestamp and time (ex: 2026/03/08 12:00:00 in front of the message)
 	"time"
 
 	pb "grpc_starbuckscoffee/proto"
@@ -12,6 +12,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+func init() {
+	log.SetFlags(0) // remove timestamp from log output just to see clean output
+}
 
 func main() {
 	// setup a connection to the server
