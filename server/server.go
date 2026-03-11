@@ -5,44 +5,58 @@ import (
 	"context"
 	"log"
 	"net"
+	"os"
 
 	pb "grpc_starbuckscoffee/proto"
 
+	"cloud.google.com/go/firestore"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc"
 )
 
 type server struct {
 	pb.UnimplementedCoffeeShopServer
+	firestoreClient *firestore.Client
 }
 
 func (s *server) GetMenu(menuRequest *pb.MenuRequest, srv pb.CoffeeShop_GetMenuServer) error {
-	items := []*pb.Item{
-		{
-			Id:          "1",
-			Name:        "Black Coffee",
-			Description: "Description",
-			Price:       3.00,
-		},
-		{
-			Id:          "2",
-			Name:        "Vanilla Latte",
-			Description: "Description",
-			Price:       3.25,
-		},
-		{
-			Id:          "3",
-			Name:        "Matcha Latte",
-			Description: "Description",
-			Price:       5.70,
-		},
+	ctx := srv.Context()
+
+	type drinkDoc struct {
+		Name        string  `firestore:"name"`
+		Description string  `firestore:"description"`
+		Price       float64 `firestore:"price"`
+		Category    string  `firestore:"category"`
 	}
 
-	for i := range items {
-		if err := srv.Send(&pb.Menu{
-			Items: items[0 : i+1],
-		}); err != nil {
+	iter := s.firestoreClient.Collection("drinks").Documents(ctx)
+	defer iter.Stop()
+
+	items := make([]*pb.Item, 0, 64)
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
 			return err
 		}
+
+		var d drinkDoc
+		if err := doc.DataTo(&d); err != nil {
+			return err
+		}
+
+		items = append(items, &pb.Item{
+			Id:          doc.Ref.ID,
+			Name:        d.Name,
+			Description: d.Description,
+			Price:       d.Price,
+		})
+	}
+
+	if err := srv.Send(&pb.Menu{Items: items}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -76,8 +90,25 @@ func main() {
 	}
 	// create a new grpc server
 	grpcServer := grpc.NewServer()
-	// register the server
-	pb.RegisterCoffeeShopServer(grpcServer, &server{})
+	// create a Firestore client
+	ctx := context.Background()
+
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	if projectID == "" {
+		projectID = "grpc-starbucks-coffee"
+		log.Printf("GOOGLE_CLOUD_PROJECT not set, using %q", projectID)
+	}
+
+	client, err := firestore.NewClient(ctx, projectID)
+	if err != nil {
+		log.Fatalf("Error creating Firestore Client: %v", err)
+	}
+	
+	defer client.Close()
+	// server implementation
+	srvImpl := &server{firestoreClient: client}
+	// register the server with Firestore
+	pb.RegisterCoffeeShopServer(grpcServer, srvImpl)
 	// start the server
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)

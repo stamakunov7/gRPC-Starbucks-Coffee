@@ -3,8 +3,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log" // timestamp and time (ex: 2026/03/08 12:00:00 in front of the message)
+	"sort"
 	"time"
 
 	pb "grpc_starbuckscoffee/proto"
@@ -36,34 +38,51 @@ func main() {
 		log.Fatalf("error calling GetMenu function: %v", err)
 	}
 
-	done := make(chan bool)
-
-	var items []*pb.Item
-	go func() {
-		for {
-			resp, err := menuStream.Recv()
-			if err == io.EOF {
-				done <- true
-				return
-			}
-			if err != nil {
-				log.Fatalf("error receiving menu items: %v", err)
-			}
-			items = resp.Items
-			log.Printf("received menu items: %v", resp.Items)
+	// Collect items from the server stream.
+	itemsByID := map[string]*pb.Item{}
+	for {
+		resp, err := menuStream.Recv()
+		if err == io.EOF {
+			break
 		}
-	}()
+		if err != nil {
+			log.Fatalf("error receiving menu items: %v", err)
+		}
+		for _, it := range resp.Items {
+			// If server sends the full menu multiple times, dedupe by ID.
+			itemsByID[it.Id] = it
+		}
+	}
 
-	<-done
+	items := make([]*pb.Item, 0, len(itemsByID))
+	for _, it := range itemsByID {
+		items = append(items, it)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+
 	if len(items) == 0 {
 		log.Fatalf("no menu items received")
 	}
+
+	// Pretty-print menu.
+	fmt.Println("Menu")
+	fmt.Println("----")
+	for _, it := range items {
+		fmt.Printf("- %s: %s ($%.2f)\n  %s\n", it.Id, it.Name, it.Price, it.Description)
+	}
+
 	receipt, err := client.PlaceOrder(ctx, &pb.Order{
 		Items: items,
 	})
-	log.Printf("receipt: %v", receipt)
+	if err != nil {
+		log.Fatalf("error calling PlaceOrder: %v", err)
+	}
+	log.Printf("receipt: %s", receipt.Id)
 
 	status, err := client.GetOrderStatus(ctx, receipt)
-	log.Printf("order status: %v", status)
+	if err != nil {
+		log.Fatalf("error calling GetOrderStatus: %v", err)
+	}
+	log.Printf("order status: %s (%s)", status.Status, status.OrderId)
 
 }
