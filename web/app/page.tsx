@@ -1,25 +1,41 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Header } from '@/components/header'
 import { Menu } from '@/components/menu'
 import { Cart } from '@/components/cart'
 import { OrderStatusComponent } from '@/components/order-status'
 import { Footer } from '@/components/footer'
-import { drinks } from '@/lib/drinks'
 import { Drink, CartItem, Order, OrderStatus } from '@/lib/types'
 
-function generateOrderId(): string {
-  return `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random()
-    .toString(36)
-    .substring(2, 6)
-    .toUpperCase()}`
+function coerceStatus(s: string): OrderStatus {
+  if (s === 'received' || s === 'preparing' || s === 'ready') return s
+  return 'received'
 }
 
 export default function CoffeeShop() {
+  const [menu, setMenu] = useState<Drink[]>([])
+  const [menuError, setMenuError] = useState<string | null>(null)
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/menu', { cache: 'no-store' })
+        if (!res.ok) throw new Error(`menu: ${res.status}`)
+        const data = (await res.json()) as { items: Drink[] }
+        if (!cancelled) setMenu(Array.isArray(data.items) ? data.items : [])
+      } catch (e: any) {
+        if (!cancelled) setMenuError(e?.message ?? 'Failed to load menu')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleAddToCart = useCallback((drink: Drink) => {
     setCartItems((prev) => {
@@ -51,14 +67,31 @@ export default function CoffeeShop() {
     setCartItems((prev) => prev.filter((item) => item.drink.id !== drinkId))
   }, [])
 
-  const handlePlaceOrder = useCallback(() => {
+  const handlePlaceOrder = useCallback(async () => {
     const total = cartItems.reduce(
       (sum, item) => sum + item.drink.price * item.quantity,
       0
     )
 
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: cartItems.map((ci) => ({ item: ci.drink, quantity: ci.quantity })),
+      }),
+    })
+
+    if (!res.ok) {
+      const msg = await res.text()
+      throw new Error(msg || `order: ${res.status}`)
+    }
+
+    const data = (await res.json()) as { receiptId: string }
+    const receiptId = data.receiptId
+    if (!receiptId) throw new Error('missing receipt id')
+
     const order: Order = {
-      id: generateOrderId(),
+      id: receiptId,
       items: [...cartItems],
       total,
       status: 'received',
@@ -70,17 +103,16 @@ export default function CoffeeShop() {
     setIsCartOpen(false)
   }, [cartItems])
 
-  const handleRefreshStatus = useCallback(() => {
+  const handleRefreshStatus = useCallback(async () => {
     if (!currentOrder) return
 
-    const statusFlow: OrderStatus[] = ['received', 'preparing', 'ready']
-    const currentIndex = statusFlow.indexOf(currentOrder.status)
-
-    if (currentIndex < statusFlow.length - 1) {
-      setCurrentOrder((prev) =>
-        prev ? { ...prev, status: statusFlow[currentIndex + 1] } : null
-      )
-    }
+    const res = await fetch(`/api/orders/${encodeURIComponent(currentOrder.id)}/status`, {
+      cache: 'no-store',
+    })
+    if (!res.ok) return
+    const data = (await res.json()) as { status: string }
+    const next = coerceStatus(data.status)
+    setCurrentOrder((prev) => (prev ? { ...prev, status: next } : null))
   }, [currentOrder])
 
   const handleCloseOrderStatus = useCallback(() => {
@@ -100,8 +132,15 @@ export default function CoffeeShop() {
       )}
 
       <main>
+        {menuError && (
+          <div className="max-w-5xl mx-auto px-6 py-6">
+            <p className="text-sm text-muted-foreground">
+              Failed to load menu. ({menuError})
+            </p>
+          </div>
+        )}
         <Menu
-          drinks={drinks}
+          drinks={menu}
           cartItems={cartItems}
           onAddToCart={handleAddToCart}
         />
@@ -112,7 +151,7 @@ export default function CoffeeShop() {
           items={cartItems}
           onUpdateQuantity={handleUpdateQuantity}
           onRemoveItem={handleRemoveItem}
-          onPlaceOrder={handlePlaceOrder}
+          onPlaceOrder={() => void handlePlaceOrder()}
           onClose={() => setIsCartOpen(false)}
         />
       )}

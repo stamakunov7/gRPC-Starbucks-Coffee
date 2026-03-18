@@ -36,4 +36,4 @@ install-ui:
 
 .PHONY: run-ui
 run-ui:
-	cd web && npm run dev
+	cd web && GRPC_ADDR=localhost:9001 npm run dev
