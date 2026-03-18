@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	pb "grpc_starbuckscoffee/proto"
@@ -21,6 +22,18 @@ import (
 type server struct {
 	pb.UnimplementedCoffeeShopServer
 	firestoreClient *firestore.Client
+}
+
+func envInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 func (s *server) GetMenu(menuRequest *pb.MenuRequest, srv pb.CoffeeShop_GetMenuServer) error {
@@ -129,18 +142,49 @@ func (s *server) PlaceOrder(ctx context.Context, order *pb.Order) (*pb.Receipt, 
 	}
 
 	// Simulate barista: update status to preparing -> ready after delays
-	go s.simulateOrderProgress(context.Background(), orderID)
+	go s.simulateOrderProgress(orderID)
 
 	log.Printf("Order %s created (status will advance to preparing → ready)", orderID)
 	return &pb.Receipt{Id: orderID}, nil
 }
 
-func (s *server) simulateOrderProgress(ctx context.Context, orderID string) {
+func (s *server) simulateOrderProgress(orderID string) {
+	// These can be tuned in local dev to make the flow easier to observe.
+	preparingAfter := time.Duration(envInt("ORDER_PREPARING_AFTER_SEC", 8)) * time.Second
+	readyAfter := time.Duration(envInt("ORDER_READY_AFTER_SEC", 18)) * time.Second
+	if readyAfter <= preparingAfter {
+		readyAfter = preparingAfter + 5*time.Second
+	}
+
 	ref := s.firestoreClient.Collection("orders").Doc(orderID)
-	time.Sleep(3 * time.Second)
-	_, _ = ref.Update(ctx, []firestore.Update{{Path: "status", Value: "preparing"}})
-	time.Sleep(3 * time.Second)
-	_, _ = ref.Update(ctx, []firestore.Update{{Path: "status", Value: "ready"}})
+
+	time.Sleep(preparingAfter)
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		doc, err := ref.Get(ctx)
+		if err == nil {
+			if cur, _ := doc.Data()["status"].(string); cur != "ready" {
+				if _, err := ref.Update(ctx, []firestore.Update{{Path: "status", Value: "preparing"}}); err == nil {
+					log.Printf("Order %s status: received → preparing", orderID)
+				}
+			}
+		}
+	}
+
+	time.Sleep(readyAfter - preparingAfter)
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		doc, err := ref.Get(ctx)
+		if err == nil {
+			if cur, _ := doc.Data()["status"].(string); cur != "ready" {
+				if _, err := ref.Update(ctx, []firestore.Update{{Path: "status", Value: "ready"}}); err == nil {
+					log.Printf("Order %s status: preparing → ready", orderID)
+				}
+			}
+		}
+	}
 }
 
 func (s *server) GetOrderStatus(ctx context.Context, receipt *pb.Receipt) (*pb.OrderStatus, error) {

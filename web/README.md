@@ -2,11 +2,25 @@
 
 Next.js UI for the Coffee Shop project.
 
-## Architecture (BFF)
+## Architecture (short)
 
-- The browser calls **Next.js API routes** (`/api/*`) using `fetch`.
-- Those route handlers call the Go backend over **gRPC** (default `localhost:9001`).
-- The Go backend reads menu + orders from **Firestore** (emulator in local dev).
+High level flow:
+
+```mermaid
+flowchart LR
+  Browser["Next.js UI\n(React components)"]
+  BFF["Next.js API routes\n/web/app/api/*"]
+  GoSrv["Go gRPC server\nCoffeeShop service"]
+  FS["Firestore\n(drinks, orders, counters)"]
+
+  Browser -->|"HTTP JSON\n/ api/menu, /api/orders,... "| BFF
+  BFF -->|"gRPC\nGetMenu, PlaceOrder,\nGetOrderStatus"| GoSrv
+  GoSrv -->|"read/write"| FS
+```
+
+- The browser talks only to **Next.js API routes** (`/api/*`) via `fetch` and JSON.
+- API routes work as a **BFF**: they call the Go `CoffeeShop` gRPC service.
+- The Go service stores menu and orders in **Firestore** (emulator in local dev).\n*** End Patch`}/>
 
 ## Local development
 
@@ -41,4 +55,12 @@ Open `http://localhost:3000`.
 
 - **`GRPC_ADDR`**: gRPC server address for the Next.js BFF (default `localhost:9001`).
   - `make run-ui` sets it automatically.
+
+## Future: true push “real-time” (optional)
+
+Polling is the simplest first step. If you want the UI to receive status updates without polling:
+
+- Add a gRPC server-streaming RPC like `WatchOrderStatus(Receipt) returns (stream OrderStatus)`.
+- In Go, subscribe to Firestore document changes for `orders/{id}` and push updates into the stream.
+- In Next.js, expose an SSE route (e.g. `/api/orders/:id/stream`) and proxy the stream to the browser.
 

@@ -20,6 +20,29 @@ export default function CoffeeShop() {
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null)
 
+  const refreshOrderStatus = useCallback(async (orderId: string) => {
+    const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
+      cache: 'no-store',
+    })
+    if (!res.ok) return
+    const data = (await res.json()) as { status: string }
+    const next = coerceStatus(data.status)
+    setCurrentOrder((prev) => (prev ? { ...prev, status: next } : null))
+  }, [])
+
+  // Poll status until it becomes ready (near real-time without streaming).
+  useEffect(() => {
+    if (!currentOrder) return
+    if (currentOrder.status === 'ready') return
+
+    const id = currentOrder.id
+    const t = setInterval(() => {
+      void refreshOrderStatus(id)
+    }, 1500)
+
+    return () => clearInterval(t)
+  }, [currentOrder, refreshOrderStatus])
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -105,14 +128,7 @@ export default function CoffeeShop() {
 
   const handleRefreshStatus = useCallback(async () => {
     if (!currentOrder) return
-
-    const res = await fetch(`/api/orders/${encodeURIComponent(currentOrder.id)}/status`, {
-      cache: 'no-store',
-    })
-    if (!res.ok) return
-    const data = (await res.json()) as { status: string }
-    const next = coerceStatus(data.status)
-    setCurrentOrder((prev) => (prev ? { ...prev, status: next } : null))
+    await refreshOrderStatus(currentOrder.id)
   }, [currentOrder])
 
   const handleCloseOrderStatus = useCallback(() => {
