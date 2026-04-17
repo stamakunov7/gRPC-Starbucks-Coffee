@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -13,6 +14,7 @@ import (
 	pb "grpc_starbuckscoffee/proto"
 
 	"cloud.google.com/go/firestore"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -207,6 +209,15 @@ func (s *server) GetOrderStatus(ctx context.Context, receipt *pb.Receipt) (*pb.O
 }
 
 func main() {
+	// Expose Prometheus metrics on :2112/metrics for Prometheus scraping.
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		if err := http.ListenAndServe(":2112", mux); err != nil {
+			log.Fatalf("metrics server failed: %v", err)
+		}
+	}()
+
 	// setup a listener on port 9001
 	lis, err := net.Listen("tcp", ":9001")
 	if err != nil {
